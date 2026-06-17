@@ -1,24 +1,27 @@
 import math
+import pandas as pd
+
+from sklearn.cluster import KMeans
 
 
 def haversine(lat1, lon1, lat2, lon2):
 
-    lat1 = float(lat1)
-    lon1 = float(lon1)
-    lat2 = float(lat2)
-    lon2 = float(lon2)
-
     R = 6371
 
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
+    lat1 = math.radians(float(lat1))
+    lon1 = math.radians(float(lon1))
+    lat2 = math.radians(float(lat2))
+    lon2 = math.radians(float(lon2))
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
 
     a = (
         math.sin(dlat / 2) ** 2
         +
-        math.cos(math.radians(lat1))
+        math.cos(lat1)
         *
-        math.cos(math.radians(lat2))
+        math.cos(lat2)
         *
         math.sin(dlon / 2) ** 2
     )
@@ -33,20 +36,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 def optimize_route(df, office_lat, office_lon):
 
-    remaining = []
-
-    for _, row in df.iterrows():
-
-        try:
-
-            remaining.append({
-                **row.to_dict(),
-                "Latitude": float(row["Latitude"]),
-                "Longitude": float(row["Longitude"])
-            })
-
-        except:
-            pass
+    remaining = df.to_dict("records")
 
     route = []
 
@@ -100,11 +90,16 @@ def split_daily(route, daily_km=160):
 
             dist = 0
 
-        if distance_today + dist > daily_km and len(current_day) > 0:
+        if (
+            distance_today + dist > daily_km
+            and
+            len(current_day) > 0
+        ):
 
             days.append(current_day)
 
             current_day = []
+
             distance_today = 0
 
         current_day.append(stop)
@@ -116,5 +111,46 @@ def split_daily(route, daily_km=160):
     if current_day:
 
         days.append(current_day)
+
+    return days
+
+
+def cluster_then_split(df):
+
+    customer_count = len(df)
+
+    clusters = max(
+        1,
+        round(customer_count / 12)
+    )
+
+    coords = df[
+        [
+            "Latitude",
+            "Longitude"
+        ]
+    ]
+
+    model = KMeans(
+        n_clusters=clusters,
+        random_state=42,
+        n_init=10
+    )
+
+    df["Cluster"] = model.fit_predict(coords)
+
+    days = []
+
+    for cluster_id in sorted(
+        df["Cluster"].unique()
+    ):
+
+        cluster_df = df[
+            df["Cluster"] == cluster_id
+        ].copy()
+
+        days.append(
+            cluster_df.to_dict("records")
+        )
 
     return days
