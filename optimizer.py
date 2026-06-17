@@ -1,7 +1,4 @@
 import math
-import pandas as pd
-
-from sklearn.cluster import KMeans
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -71,27 +68,27 @@ def split_daily(route, daily_km=160):
 
     current_day = []
 
-    distance_today = 0
+    current_distance = 0
 
     previous = None
 
     for stop in route:
 
-        if previous:
+        if previous is None:
 
-            dist = haversine(
+            distance = 0
+
+        else:
+
+            distance = haversine(
                 previous["Latitude"],
                 previous["Longitude"],
                 stop["Latitude"],
                 stop["Longitude"]
             )
 
-        else:
-
-            dist = 0
-
         if (
-            distance_today + dist > daily_km
+            current_distance + distance > daily_km
             and
             len(current_day) > 0
         ):
@@ -100,11 +97,11 @@ def split_daily(route, daily_km=160):
 
             current_day = []
 
-            distance_today = 0
+            current_distance = 0
 
         current_day.append(stop)
 
-        distance_today += dist
+        current_distance += distance
 
         previous = stop
 
@@ -117,40 +114,16 @@ def split_daily(route, daily_km=160):
 
 def cluster_then_split(df):
 
-    customer_count = len(df)
+    OFFICE_LAT = 6.8275814230546725
+    OFFICE_LON = 79.95698659415302
 
-    clusters = max(
-        1,
-        round(customer_count / 12)
+    route = optimize_route(
+        df,
+        OFFICE_LAT,
+        OFFICE_LON
     )
 
-    coords = df[
-        [
-            "Latitude",
-            "Longitude"
-        ]
-    ]
-
-    model = KMeans(
-        n_clusters=clusters,
-        random_state=42,
-        n_init=10
+    return split_daily(
+        route,
+        160
     )
-
-    df["Cluster"] = model.fit_predict(coords)
-
-    days = []
-
-    for cluster_id in sorted(
-        df["Cluster"].unique()
-    ):
-
-        cluster_df = df[
-            df["Cluster"] == cluster_id
-        ].copy()
-
-        days.append(
-            cluster_df.to_dict("records")
-        )
-
-    return days
