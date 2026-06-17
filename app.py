@@ -1,11 +1,10 @@
-
 import streamlit as st
 import pandas as pd
 
 from streamlit_folium import st_folium
 
 from sheets import load_sheet
-from optimizer import optimize_route, split_daily
+from optimizer import cluster_then_split
 from map import create_day_map
 
 
@@ -42,6 +41,28 @@ daily_limit = st.number_input(
     min_value=10,
     value=160
 )
+
+
+def build_google_maps_url(
+    day,
+    office_lat,
+    office_lon
+):
+
+    points = [
+        f"{office_lat},{office_lon}"
+    ]
+
+    for stop in day:
+
+        points.append(
+            f"{stop['Latitude']},{stop['Longitude']}"
+        )
+
+    return (
+        "https://www.google.com/maps/dir/"
+        + "/".join(points)
+    )
 
 
 if st.button("Generate Route"):
@@ -129,22 +150,17 @@ if st.button("Generate Route"):
             ]
         )
 
-        route = optimize_route(
-            df,
-            OFFICE_LAT,
-            OFFICE_LON
+        st.success(
+            f"Customers Selected: {len(df)}"
         )
 
-        days = split_daily(
-            route,
-            daily_limit
-        )
+        days = cluster_then_split(df)
 
         st.session_state.days = days
         st.session_state.generated = True
 
         st.success(
-            f"{len(days)} day(s) generated"
+            f"{len(days)} route day(s) generated"
         )
 
     except Exception as e:
@@ -189,6 +205,17 @@ if st.session_state.generated:
             use_container_width=True
         )
 
+        google_url = build_google_maps_url(
+            day,
+            OFFICE_LAT,
+            OFFICE_LON
+        )
+
+        st.link_button(
+            f"🗺 Open Day {day_no} In Google Maps",
+            google_url
+        )
+
         show_map = st.checkbox(
             f"Show Map Day {day_no}",
             key=f"map_checkbox_{day_no}"
@@ -208,4 +235,3 @@ if st.session_state.generated:
                 height=700,
                 key=f"folium_day_{day_no}"
             )
-
