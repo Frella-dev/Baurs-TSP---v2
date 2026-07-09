@@ -14,13 +14,13 @@ from sheets import get_towns, load_sheet
 # ==============================
 
 st.set_page_config(
-    page_title="Pharmaceutical Territory Intelligence System",
+    page_title="Frella Retails Intelligence System",
     layout="wide"
 )
 
 
 st.title(
-    "Pharmaceutical Territory Intelligence System"
+    "Frella Retails Intelligence System"
 )
 
 
