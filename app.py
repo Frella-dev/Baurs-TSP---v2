@@ -1,237 +1,553 @@
-import streamlit as st
 import pandas as pd
-
+import streamlit as st
 from streamlit_folium import st_folium
 
-from sheets import load_sheet
-from optimizer import cluster_then_split
-from map import create_day_map
+from googlemaps import build_day_route_urls
+from map import create_day_map, create_full_plan_map
+from optimizer import create_plan, get_plan_summary
+from priority import prepare_customers, priority_summary
+from sheets import get_towns, load_sheet
 
 
-OFFICE_LAT = 6.8275814230546725
-OFFICE_LON = 79.95698659415302
-
+# ==============================
+# PAGE CONFIG
+# ==============================
 
 st.set_page_config(
-    page_title="Sales Route Planner",
+    page_title="Pharmaceutical Territory Intelligence System",
     layout="wide"
 )
 
-st.title("Sales Route Planner")
 
+st.title(
+    "Pharmaceutical Territory Intelligence System"
+)
+
+
+# ==============================
+# SESSION STATE
+# ==============================
 
 if "days" not in st.session_state:
-    st.session_state.days = None
+    st.session_state.days = []
+
 
 if "generated" not in st.session_state:
     st.session_state.generated = False
+
+
+
+# ==============================
+# INPUT SECTION
+# ==============================
+
+ors_api_key = st.text_input(
+    "OpenRouteService API Key (Optional)",
+    type="password"
+)
 
 
 sheet_url = st.text_input(
     "Google Sheet URL"
 )
 
-visit_stage = st.selectbox(
-    "Visit Stage",
-    [1, 2, 3]
-)
 
-daily_limit = st.number_input(
-    "Daily KM Limit",
-    min_value=10,
-    value=160
-)
-
-
-def build_google_maps_url(
-    day,
-    office_lat,
-    office_lon
-):
-
-    points = [
-        f"{office_lat},{office_lon}"
+planning_mode = st.radio(
+    "Planning Mode",
+    [
+        "Nationwide",
+        "Area"
     ]
-
-    for stop in day:
-
-        points.append(
-            f"{stop['Latitude']},{stop['Longitude']}"
-        )
-
-    return (
-        "https://www.google.com/maps/dir/"
-        + "/".join(points)
-    )
+)
 
 
-if st.button("Generate Route"):
+max_stops = st.slider(
+    "Maximum Customers Per Day",
+    min_value=5,
+    max_value=20,
+    value=12
+)
+
+
+
+selected_area = []
+
+
+# ==============================
+# LOAD TOWNS
+# ==============================
+
+if sheet_url:
+
 
     try:
 
-        st.info("Loading Sheet...")
 
-        df = load_sheet(sheet_url)
-
-        df.columns = df.columns.str.strip()
-
-        if visit_stage == 1:
-
-            df = df[
-                df["1st Visit"]
-                .astype(str)
-                .str.upper()
-                .str.strip()
-                == "NO"
-            ]
-
-        elif visit_stage == 2:
-
-            df = df[
-                (
-                    df["1st Visit"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                    == "YES"
-                )
-                &
-                (
-                    df["2nd Visit"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                    == "NO"
-                )
-            ]
-
-        else:
-
-            df = df[
-                (
-                    df["1st Visit"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                    == "YES"
-                )
-                &
-                (
-                    df["2nd Visit"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                    == "YES"
-                )
-                &
-                (
-                    df["3rd Visit"]
-                    .astype(str)
-                    .str.upper()
-                    .str.strip()
-                    == "NO"
-                )
-            ]
-
-        df["Latitude"] = pd.to_numeric(
-            df["Latitude"],
-            errors="coerce"
+        temp_df = load_sheet(
+            sheet_url
         )
 
-        df["Longitude"] = pd.to_numeric(
-            df["Longitude"],
-            errors="coerce"
+
+        towns = get_towns(
+            temp_df
         )
 
-        df = df.dropna(
-            subset=[
-                "Latitude",
-                "Longitude"
-            ]
-        )
 
-        st.success(
-            f"Customers Selected: {len(df)}"
-        )
+        if planning_mode == "Area":
 
-        days = cluster_then_split(df)
 
-        st.session_state.days = days
-        st.session_state.generated = True
+            selected_area = st.multiselect(
+                "Select Areas",
+                towns
+            )
 
-        st.success(
-            f"{len(days)} route day(s) generated"
-        )
 
     except Exception as e:
 
+
+        st.warning(
+            str(e)
+        )
+
+
+
+# ==============================
+# GENERATE PLAN
+# ==============================
+
+
+if st.button(
+    "Generate Route Plan"
+):
+
+
+    try:
+
+
+        df = load_sheet(
+            sheet_url
+        )
+
+
+        df = prepare_customers(
+            df
+        )
+
+
+        if (
+            planning_mode == "Area"
+            and
+            len(selected_area) == 0
+        ):
+
+
+            st.warning(
+                "Please select at least one area"
+            )
+
+
+            st.stop()
+
+
+
+        days = create_plan(
+
+            df=df,
+
+            ors_api_key=ors_api_key,
+
+            mode=planning_mode.lower(),
+
+            area=selected_area,
+
+            max_stops=max_stops
+
+        )
+
+
+
+        st.session_state.days = days
+
+        st.session_state.generated = True
+
+
+
+        st.success(
+            f"{len(days)} day(s) generated"
+        )
+
+
+
+    except Exception as e:
+
+
         import traceback
 
-        st.error(str(e))
+
+        st.error(
+            str(e)
+        )
+
 
         st.code(
             traceback.format_exc()
         )
 
 
+
+# ==============================
+# RESULT DASHBOARD
+# ==============================
+
+
 if st.session_state.generated:
+
 
     days = st.session_state.days
 
-    st.success(
-        f"Days Required: {len(days)}"
+
+
+    total_customers = sum(
+
+        len(day)
+
+        for day in days
+
     )
 
-    for day_no, day in enumerate(days, start=1):
+
+    total_days = len(
+        days
+    )
+
+
+
+    avg_per_day = (
+
+        round(
+            total_customers / total_days,
+            1
+        )
+
+        if total_days > 0
+
+        else 0
+
+    )
+
+
+    summary_df = get_plan_summary(
+        days
+    )
+
+
+
+    total_km = 0
+
+
+    if (
+
+        not summary_df.empty
+
+        and
+
+        "KM" in summary_df.columns
+
+    ):
+
+
+        total_km = round(
+
+            summary_df["KM"].sum(),
+
+            1
+
+        )
+
+
+
+    st.divider()
+
+
+    st.header(
+        "Planning KPIs"
+    )
+
+
+
+    c1,c2,c3,c4 = st.columns(
+        4
+    )
+
+
+    c1.metric(
+        "Customers",
+        total_customers
+    )
+
+
+    c2.metric(
+        "Planned Days",
+        total_days
+    )
+
+
+    c3.metric(
+        "Avg Customers/Day",
+        avg_per_day
+    )
+
+
+    c4.metric(
+        "Total KM",
+        total_km
+    )
+
+
+
+    # ==========================
+    # SUMMARY TABLE
+    # ==========================
+
+
+    st.divider()
+
+
+    st.header(
+        "Route Summary"
+    )
+
+
+    st.dataframe(
+
+        summary_df,
+
+        use_container_width=True
+
+    )
+
+
+
+    # ==========================
+    # FULL MAP
+    # ==========================
+
+
+    st.divider()
+
+
+
+    if st.checkbox(
+        "Show Full Route Map"
+    ):
+
+
+        full_map = create_full_plan_map(
+            days
+        )
+
+
+        st_folium(
+
+            full_map,
+
+            width=1400,
+
+            height=700,
+
+            key="full_map"
+
+        )
+
+
+
+    # ==========================
+    # DAY DETAILS
+    # ==========================
+
+
+
+    st.divider()
+
+
+
+    for day_no, day in enumerate(
+        days,
+        start=1
+    ):
+
+
 
         st.subheader(
             f"Day {day_no}"
         )
 
-        day_df = pd.DataFrame(day)
 
-        cols = [
-            c for c in [
-                "Customer name",
-                "Town",
-                "Latitude",
-                "Longitude"
-            ]
-            if c in day_df.columns
-        ]
+
+        day_df = pd.DataFrame(
+            day
+        )
+
+
+
+        display_cols = []
+
+
+        for col in [
+
+            "Customer name",
+
+            "Town",
+
+            "Pending Visit",
+
+            "Priority",
+
+            "Latitude",
+
+            "Longitude"
+
+        ]:
+
+
+            if col in day_df.columns:
+
+
+                display_cols.append(
+                    col
+                )
+
+
 
         st.dataframe(
-            day_df[cols],
+
+            day_df[
+                display_cols
+            ],
+
             use_container_width=True
+
         )
 
-        google_url = build_google_maps_url(
-            day,
-            OFFICE_LAT,
-            OFFICE_LON
+
+
+        # GOOGLE MAP BUTTONS
+
+
+        routes = build_day_route_urls(
+            day
         )
 
-        st.link_button(
-            f"🗺 Open Day {day_no} In Google Maps",
-            google_url
-        )
+
+
+        for route in routes:
+
+
+            st.link_button(
+
+                f"Route {route['part']} ({route['start']} - {route['end']})",
+
+                route["url"]
+
+            )
+
+
 
         show_map = st.checkbox(
+
             f"Show Map Day {day_no}",
-            key=f"map_checkbox_{day_no}"
+
+            key=f"map_{day_no}"
+
         )
+
+
 
         if show_map:
 
+
             day_map = create_day_map(
-                day,
-                OFFICE_LAT,
-                OFFICE_LON
+                day
             )
 
+
             st_folium(
+
                 day_map,
+
                 width=1200,
+
                 height=700,
-                key=f"folium_day_{day_no}"
+
+                key=f"folium_{day_no}"
+
             )
+
+
+        st.divider()
+
+
+
+    # ==========================
+    # PRIORITY SUMMARY
+    # ==========================
+
+
+    st.header(
+        "Priority Overview"
+    )
+
+
+
+    all_rows = []
+
+
+    for day in days:
+
+
+        all_rows.extend(
+            day
+        )
+
+
+
+    priority_df = pd.DataFrame(
+        all_rows
+    )
+
+
+
+    summary = priority_summary(
+        priority_df
+    )
+
+
+
+    c1,c2,c3,c4 = st.columns(
+        4
+    )
+
+
+
+    c1.metric(
+        "Visit 1",
+        summary["Visit1"]
+    )
+
+
+    c2.metric(
+        "Visit 2",
+        summary["Visit2"]
+    )
+
+
+    c3.metric(
+        "Visit 3",
+        summary["Visit3"]
+    )
+
+
+    c4.metric(
+        "Completed",
+        summary["Completed"]
+    )

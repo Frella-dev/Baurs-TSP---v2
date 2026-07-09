@@ -1,129 +1,161 @@
-import math
+from priority import (
+    prepare_customers,
+    get_pending_customers,
+)
+
+from route_engine import (
+    build_optimized_plan,
+    route_summary,
+)
 
 
-def haversine(lat1, lon1, lat2, lon2):
-
-    R = 6371
-
-    lat1 = math.radians(float(lat1))
-    lon1 = math.radians(float(lon1))
-    lat2 = math.radians(float(lat2))
-    lon2 = math.radians(float(lon2))
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    a = (
-        math.sin(dlat / 2) ** 2
-        +
-        math.cos(lat1)
-        *
-        math.cos(lat2)
-        *
-        math.sin(dlon / 2) ** 2
-    )
-
-    c = 2 * math.atan2(
-        math.sqrt(a),
-        math.sqrt(1 - a)
-    )
-
-    return R * c
+OFFICE_LAT = 6.827305661191226
+OFFICE_LON = 79.95698907652856
 
 
-def optimize_route(df, office_lat, office_lon):
 
-    remaining = df.to_dict("records")
+# ==================================
+# AREA ROUTE PLAN
+# Multiple Town Support
+# ==================================
 
-    route = []
+def build_area_plan(
+    df,
+    area,
+    max_stops=12
+):
 
-    current_lat = office_lat
-    current_lon = office_lon
+    if not area:
+        return []
 
-    while remaining:
 
-        nearest = min(
-            remaining,
-            key=lambda x: haversine(
-                current_lat,
-                current_lon,
-                x["Latitude"],
-                x["Longitude"]
-            )
+    area_df = df[
+
+        df["Town"]
+        .astype(str)
+        .str.upper()
+        .isin(
+            [
+                str(x).upper()
+                for x in area
+            ]
         )
 
-        route.append(nearest)
-
-        current_lat = nearest["Latitude"]
-        current_lon = nearest["Longitude"]
-
-        remaining.remove(nearest)
-
-    return route
+    ].copy()
 
 
-def split_daily(route, daily_km=160):
 
-    days = []
+    return build_optimized_plan(
 
-    current_day = []
+        area_df,
 
-    current_distance = 0
+        max_stops=max_stops
 
-    previous = None
-
-    for stop in route:
-
-        if previous is None:
-
-            distance = 0
-
-        else:
-
-            distance = haversine(
-                previous["Latitude"],
-                previous["Longitude"],
-                stop["Latitude"],
-                stop["Longitude"]
-            )
-
-        if (
-            current_distance + distance > daily_km
-            and
-            len(current_day) > 0
-        ):
-
-            days.append(current_day)
-
-            current_day = []
-
-            current_distance = 0
-
-        current_day.append(stop)
-
-        current_distance += distance
-
-        previous = stop
-
-    if current_day:
-
-        days.append(current_day)
-
-    return days
-
-
-def cluster_then_split(df):
-
-    OFFICE_LAT = 6.8275814230546725
-    OFFICE_LON = 79.95698659415302
-
-    route = optimize_route(
-        df,
-        OFFICE_LAT,
-        OFFICE_LON
     )
 
-    return split_daily(
-        route,
-        160
+
+
+# ==================================
+# NATIONWIDE PLAN
+# ==================================
+
+def build_nationwide_plan(
+    df,
+    max_stops=12
+):
+
+
+    return build_optimized_plan(
+
+        df,
+
+        max_stops=max_stops
+
+    )
+
+
+
+# ==================================
+# MAIN ROUTE CREATOR
+# ==================================
+
+def create_plan(
+
+    df,
+
+    ors_api_key=None,
+
+    mode="nationwide",
+
+    area=None,
+
+    max_stops=12
+
+):
+
+
+    # Future ORS integration placeholder
+
+    _ = ors_api_key
+
+
+
+    # Add priority fields
+
+    df = prepare_customers(
+        df
+    )
+
+
+
+    # remove completed customers
+
+    df = get_pending_customers(
+        df
+    )
+
+
+
+    if df.empty:
+
+        return []
+
+
+
+    if mode == "area":
+
+
+        return build_area_plan(
+
+            df,
+
+            area,
+
+            max_stops=max_stops
+
+        )
+
+
+
+    return build_nationwide_plan(
+
+        df,
+
+        max_stops=max_stops
+
+    )
+
+
+
+# ==================================
+# SUMMARY
+# ==================================
+
+def get_plan_summary(
+    days
+):
+
+
+    return route_summary(
+        days
     )

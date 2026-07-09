@@ -1,11 +1,113 @@
 import folium
 
+from priority import (
+    marker_color
+)
 
-def create_day_map(day, office_lat, office_lon):
+
+def create_popup(stop):
+
+    customer = stop.get(
+        "Customer name",
+        "Unknown"
+    )
+
+    town = stop.get(
+        "Town",
+        "-"
+    )
+
+    pending = stop.get(
+        "Pending Visit",
+        "-"
+    )
+
+    priority = stop.get(
+        "Priority",
+        "-"
+    )
+
+    return f"""
+    <b>{customer}</b><br>
+    Town: {town}<br>
+    Pending: {pending}<br>
+    Priority: {priority}
+    """
+
+
+def add_customer_marker(
+    m,
+    stop,
+    sequence=None
+):
+
+    lat = float(
+        stop["Latitude"]
+    )
+
+    lon = float(
+        stop["Longitude"]
+    )
+
+    color = stop.get(
+        "Marker Color",
+        marker_color(stop)
+    )
+
+    tooltip = stop.get(
+        "Customer name",
+        "Customer"
+    )
+
+    if sequence is not None:
+
+        tooltip = (
+            f"{sequence}. "
+            f"{tooltip}"
+        )
+
+    popup = create_popup(
+        stop
+    )
+
+    folium.Marker(
+        location=[lat, lon],
+        popup=popup,
+        tooltip=tooltip,
+        icon=folium.Icon(
+            color=color
+        )
+    ).add_to(m)
+
+
+def add_route_line(
+    m,
+    coordinates,
+    color="blue"
+):
+
+    if len(coordinates) < 2:
+        return
+
+    folium.PolyLine(
+        coordinates,
+        weight=4,
+        opacity=0.8,
+        color=color
+    ).add_to(m)
+
+
+def create_day_map(
+    day
+):
 
     if len(day) == 0:
+
         return folium.Map(
-            location=[office_lat, office_lon],
+            location=[
+                7.5,
+                80.7
+            ],
             zoom_start=8
         )
 
@@ -13,40 +115,121 @@ def create_day_map(day, office_lat, office_lon):
 
     m = folium.Map(
         location=[
-            first["Latitude"],
-            first["Longitude"]
+            float(
+                first["Latitude"]
+            ),
+            float(
+                first["Longitude"]
+            )
         ],
-        zoom_start=9
+        zoom_start=10
     )
 
-    coords = []
+    coordinates = []
 
-    folium.Marker(
-        [office_lat, office_lon],
-        popup="Office",
-        tooltip="Office"
-    ).add_to(m)
+    for idx, stop in enumerate(
+        day,
+        start=1
+    ):
 
-    coords.append(
-        [office_lat, office_lon]
+        add_customer_marker(
+            m,
+            stop,
+            idx
+        )
+
+        coordinates.append(
+            [
+                float(
+                    stop["Latitude"]
+                ),
+                float(
+                    stop["Longitude"]
+                )
+            ]
+        )
+
+    add_route_line(
+        m,
+        coordinates,
+        "blue"
     )
 
-    for idx, stop in enumerate(day, start=1):
+    return m
 
-        lat = float(stop["Latitude"])
-        lon = float(stop["Longitude"])
 
-        coords.append([lat, lon])
+def create_full_plan_map(
+    days
+):
 
-        folium.Marker(
-            [lat, lon],
-            popup=f"{idx}. {stop['Customer name']}",
-            tooltip=f"{idx}. {stop['Customer name']}"
-        ).add_to(m)
+    m = folium.Map(
+        location=[
+            7.5,
+            80.7
+        ],
+        zoom_start=7
+    )
 
-    folium.PolyLine(
-        coords,
-        weight=5
-    ).add_to(m)
+    colors = [
+        "red",
+        "blue",
+        "green",
+        "purple",
+        "orange",
+        "darkred",
+        "cadetblue",
+        "darkgreen",
+        "darkpurple"
+    ]
+
+    for day_no, day in enumerate(
+        days,
+        start=1
+    ):
+
+        coordinates = []
+
+        route_color = colors[
+            day_no % len(colors)
+        ]
+
+        for idx, stop in enumerate(
+            day,
+            start=1
+        ):
+
+            lat = float(
+                stop["Latitude"]
+            )
+
+            lon = float(
+                stop["Longitude"]
+            )
+
+            coordinates.append(
+                [lat, lon]
+            )
+
+            popup = f"""
+            <b>Day {day_no}</b><br>
+            Stop {idx}<br>
+            {stop.get('Customer name')}<br>
+            {stop.get('Town')}<br>
+            {stop.get('Pending Visit')}
+            """
+
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=6,
+                popup=popup,
+                color=route_color,
+                fill=True
+            ).add_to(m)
+
+        add_route_line(
+            m,
+            coordinates,
+            route_color
+        )
 
     return m
